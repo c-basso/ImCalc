@@ -25,7 +25,10 @@ export default class App extends React.Component {
 	}
 
 	configureScene(route, routeStack) {
-		return Navigator.SceneConfigs.PushFromRight;
+		return {
+			...Navigator.SceneConfigs.PushFromRight,
+			gestures: {}
+		};
 	}
 
 	routeMapper = {

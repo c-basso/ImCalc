@@ -15,7 +15,12 @@ const correct = width === 320 ? 20 : 40;
 export default class extends React.Component {
 	_renderLeftIcon() {
 		if (this.props.leftIcon) {
-			return (<Text><FontAwesome>{Icons[this.props.leftIcon]}</FontAwesome>{'  '}</Text>);
+			const space = this.props.title ? '  ' : '';
+			return (
+				<Text>
+					<FontAwesome>{Icons[this.props.leftIcon]}</FontAwesome>{space}
+				</Text>
+			);
 		}
 		return null;
 	}
@@ -59,12 +64,16 @@ export default class extends React.Component {
 			}
 		}
 
+		const width = this.props.width ? {width: this.props.width} : {};
+		const title = this.props.title ? this.props.title : '';
+
 		if (this.props.isDisable) {
 			return (
 				<View style={[
 						styles.menuButton,
 						modWrap,
-						{borderColor: '#777'}
+						{borderColor: '#777'},
+						width
 					]}>
 					<Text style={[
 						styles.menuButtonText,
@@ -72,7 +81,7 @@ export default class extends React.Component {
 						{color: '#777'}
 						]}>
 						{this._renderLeftIcon()}
-						{this.props.title}
+						{title}
 					</Text>
 				</View>
 			);
@@ -82,14 +91,15 @@ export default class extends React.Component {
 			<TouchableHighlight style={[
 				styles.menuButton,
 				modWrap,
-				action
+				action,
+				width
 				]} onPress={this.props.onPress}>
 				<Text style={[
 					styles.menuButtonText,
 					modText
 				]}>
 					{this._renderLeftIcon()}
-					{this.props.title}
+					{title}
 				</Text>
 			</TouchableHighlight>
 		);

@@ -14,6 +14,7 @@ export default class extends React.Component {
 	constructor(props) {
 		super(props);
 		this.state = {
+			value: props.value,
 			status: props.status,
 			initButtonStyle: this._getInitButtonStyle(),
 			statusButtonStyle: this._getStatusButtonStyle(props.status),
@@ -22,10 +23,6 @@ export default class extends React.Component {
 	}
 
 	_getInitButtonStyle() {
-		// return {
-		// 	backgroundColor: 'transparent',
-		// 	borderColor: '#fff'
-		// };
 		const styles = [
 			{
 				backgroundColor: '#76ab9e',
@@ -78,11 +75,19 @@ export default class extends React.Component {
 	}
 
 	componentWillReceiveProps(next) {
+		if (next.reInit) {
+			const initButtonStyle = this._getInitButtonStyle();
+			this.setState({initButtonStyle});
+		}
+
 		if (next.status !== this.state.status) {
 			const status = next.status;
+			const value = next.value;
+
 			const statusButtonStyle = this._getStatusButtonStyle(status);
 			const statusButtonTextStyle = this._getStatusButtonTextStyle(status);
-			this.setState({status, statusButtonStyle, statusButtonTextStyle});
+
+			this.setState({status, value, statusButtonStyle, statusButtonTextStyle});
 		}
 	}
 
@@ -111,25 +116,37 @@ export default class extends React.Component {
 
 		return (
 			<View style={styles.wrapper}>
-			<TouchableHighlight
-				onPress={() => this.props.onPress(this.props.index)}
-				style={[
-					styles.button,
-					this.state.initButtonStyle,
-					this.state.statusButtonStyle
-				]}>
-				<Text style={[
-					styles.buttonText,
-					this.state.statusButtonTextStyle,
-					{fontSize}
-				]}>{this.props.value}</Text>
-			</TouchableHighlight>
+				<TouchableHighlight
+					onPress={() => this.props.onPress(this.props.index)}
+					style={[
+						styles.button,
+						this.state.initButtonStyle,
+						this.state.statusButtonStyle
+					]}>
+					<Text style={[
+						styles.buttonText,
+						this.state.statusButtonTextStyle,
+						{fontSize}
+					]}>{this.props.value}</Text>
+				</TouchableHighlight>
 			</View>
 		);
 	}
 }
 
 const {width} = Dimensions.get('window');
+
+const btnSize = (() => {
+	if (width === 320) {
+		return 72;
+	}
+	if (width === 375) {
+		return 78;
+	}
+	if (width === 414) {
+		return 87;
+	}
+})();
 
 const styles = StyleSheet.create({
 	wrapper: {
@@ -142,8 +159,8 @@ const styles = StyleSheet.create({
 		borderWidth: 1,
 		alignItems: 'center',
 		justifyContent: 'center',
-		width: width === 320 ? 72 : 78,
-		height: width === 320 ? 72 : 78
+		width: btnSize,
+		height: btnSize
 	},
 	buttonText: {
 		textAlign: 'center',

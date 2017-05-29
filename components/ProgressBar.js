@@ -46,7 +46,7 @@ export default class extends React.Component {
 		const progress = parseFloat(this.props.progress);
 		const backgroundColor = progress > 0.3
 			? '#fff'
-			: `rgba(255, 0, 0, ${Math.round(progress * 100) % 4 == 0 ? 1 : 0.5})`;
+			: `rgba(255, 0, 0, ${Math.round(progress * 100) % 2 == 0 ? 1 : 0.5})`;
 
 		return (
 			<View style={styles.wrapper}
@@ -80,7 +80,6 @@ export default class extends React.Component {
 
 const styles = StyleSheet.create({
 	wrapper: {
-		marginTop: 30, 
 		marginBottom: 23
 	},
 	background: {

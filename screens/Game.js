@@ -3,13 +3,20 @@ import React from 'react';
 import {
 	Text,
 	View,
+	Share,
 	StatusBar,
 	StyleSheet,
 	Dimensions,
+	Linking,
+	NativeModules,
 	AsyncStorage
 } from 'react-native';
 
+const GameManager = NativeModules.IMCGameManager;
+const reactMixin = require('react-mixin');
+
 import FontAwesome, { Icons } from 'react-native-fontawesome';
+import TimerMixin from 'react-timer-mixin';
 import { AdMobRewarded } from 'react-native-admob';
 
 import styles from './../styles';
@@ -17,22 +24,26 @@ import ModalBox from './../components/ModalBox';
 import MenuButton from './../components/MenuButton';
 import GameButton from './../components/GameButton';
 import ProgressBar from './../components/ProgressBar';
+import i18n from './../i18n';
 
 const {width} = Dimensions.get('window');
 const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-const BUTTONS_COUNT = 14;
+const BUTTONS_COUNT = 16;
+const SUCCESS_TIME = 500;
+const ERROR_TIME = 500;
+const RESTART_TIME = 500;
+const INTERVAL_TIME = 200;
 
-const i18n = {
-	scoreDesc: 'Очки',
-	targetDesc: 'Сумма каких\nдвух чисел равна',
-	bestScoreDesc: 'Рекорд',
-	youLose: 'Вы проиграли',
-};
+export default class Game extends React.Component {
+	_shareText: Function;
+	_showResult: Function;
 
-export default class extends React.Component {
 	constructor(props) {
 		super(props);
+
+		this._shareText = this._shareText.bind(this);
+		this._showResult = this._showResult.bind(this);
 
 		const lvlIncrement = 0;
 		const lastTarget = 0;
@@ -40,9 +51,12 @@ export default class extends React.Component {
 		const level = this._generateLevel(lvlIncrement, lastTarget);
 
 		this.state = {
+			shareResult: '',
+			rewardedAmountTaked: false,
+			continueAllowed: false,
 			plusTime: 4,
 			hasAd: false,
-			money: 0,
+			continueCount: 0,
 			interval: undefined,
 			gameOver: false,
 			score: 0,
@@ -55,25 +69,43 @@ export default class extends React.Component {
 		};
 	}
 
-	next(isRestart = false) {
+	next(options) {
+		const params = options || {};
+		const isRestart = !!params.isRestart;
+		const isContinue = !!params.isContinue;
+
 		this.addTime();
 
 		const lastTarget = this.state.target;
 		let lvlIncrement = this.state.lvlIncrement;
+
 		const level = this._generateLevel(lvlIncrement, lastTarget);
 		const target = level.target;
+
 		const numbers = this._generateNumbers(level);
 
-		const score = !isRestart ? this.state.score + lastTarget : 0;
+		let score = this.state.score + lastTarget;
+
+		if (isRestart) {
+			score = 0;
+		}
+
+		if (isContinue) {
+			score = this.state.score;
+		}
+		
 		const bestScore = score > this.state.bestScore 
 			? score
 			: this.state.bestScore;
 
 		if (bestScore > this.state.bestScore) {
+			GameManager.rnReportScore(parseInt(bestScore));
 			AsyncStorage.setItem('bestScore', bestScore.toString());
 		}
 
-		lvlIncrement++;
+		if (!isContinue && !isRestart) {
+			lvlIncrement++;
+		}
 
 		this.setState({
 			score,
@@ -86,6 +118,9 @@ export default class extends React.Component {
 
 	restartGame() {
 		this.setState({
+			continueCount: 0,
+			rewardedAmountTaked: false,
+			continueAllowed: false,
 			score: 0,
 			progress: 1,
 			plusTime: 4,
@@ -93,26 +128,44 @@ export default class extends React.Component {
 			lvlIncrement: 0,
 			selected: []
 		});
-		setTimeout(() => {
-			this.next(true);
+
+		this.setTimeout(() => {
+			this.next({isRestart: true});
 			this.startTiming();
-		}, 250);
+		}, RESTART_TIME);
+	}
+
+	continueGame() {
+		this.setState({
+			continueCount: this.state.continueCount + 1,
+			rewardedAmountTaked: false,
+			continueAllowed: false,
+			progress: 1,
+			plusTime: 4,
+			gameOver: false,
+			selected: []
+		});
+
+		this.setTimeout(() => {
+			this.next({isContinue: true});
+			this.startTiming();
+		}, RESTART_TIME);
 	}
 
 	addTime() {
 		const addon = this.state.progress > 0.4 ? 0.3 : getRandomInt(3, 6) * 0.1;
 		let progress = this.state.progress + addon;
 		progress = progress > 1 ? 1 : progress;
+
 		this.setState({progress});
 	} 
 
 	plusTime() {
 		const plusTime = this.state.plusTime;
+
 		if (plusTime > 0) {
 			this.addTime();
-			this.setState({
-				plusTime: plusTime - 1
-			});
+			this.setState({plusTime: plusTime - 1});
 		}
 	}
 
@@ -125,7 +178,7 @@ export default class extends React.Component {
 		let left = getRandomInt(min, max);
 		let right = getRandomInt(min, max);
 
-		while (lastTarget == (left + right)) {
+		while (lastTarget === (left + right)) {
 			left = getRandomInt(min, max);
 			right = getRandomInt(min, max);
 		}
@@ -151,7 +204,7 @@ export default class extends React.Component {
 
 	_generateNumbers(level) {
 		const numbers = '0'
-			.repeat(BUTTONS_COUNT)
+			.repeat(BUTTONS_COUNT - 2)
 			.split('')
 			.map(() => this._getNum(level))
 			.concat([level.left, level.right]);
@@ -161,6 +214,7 @@ export default class extends React.Component {
 				index,
 				value,
 				status: 'inited',
+				reInit: true,
 				onPress: this.onPress.bind(this, index)
 			}
 		});
@@ -201,9 +255,7 @@ export default class extends React.Component {
 			}
 		}
 
-		_.map(selected, (item) => {
-			numbers[item.index].status = status;
-		});
+		_.forEach(selected, (item) => numbers[item.index].status = status);
 
 		this.setState({
 			numbers,
@@ -212,22 +264,16 @@ export default class extends React.Component {
 
 		if (status === 'success') {
 			this.stopTiming();
-			setTimeout(() => {
+			this.setTimeout(() => {
 				this.next();
 				this.startTiming();
-			}, 500);
+			}, SUCCESS_TIME);
 		} 
 
 		if (status === 'error'){
 			this.stopTiming();
-			AdMobRewarded.requestAd((error) => {
-				if (error) {
-					this.setState({hasAd: false});
-				}
-			});
-			setTimeout(() => {
-				this.setState({gameOver: true});
-			}, 500);
+			AdMobRewarded.requestAd((error) => error && this.setState({hasAd: false}));
+			this.setTimeout(() => this.setState({gameOver: true}), ERROR_TIME);
 		}
 	}
 
@@ -248,6 +294,7 @@ export default class extends React.Component {
 
 		AdMobRewarded.addEventListener('rewardedVideoDidRewardUser', (type, amount) => {
 			console.log('rewardedVideoDidRewardUser', type, amount);
+			this.setState({rewardedAmountTaked: true});
 		});
 
 		AdMobRewarded.addEventListener('rewardedVideoDidLoad', () => {
@@ -255,13 +302,18 @@ export default class extends React.Component {
 		});
 		AdMobRewarded.addEventListener('rewardedVideoDidFailToLoad', (error) => {
 			console.log('rewardedVideoDidFailToLoad', error);
+			this.setState({hasAd: false});
 		});
 		AdMobRewarded.addEventListener('rewardedVideoDidOpen', () => {
-			console.log('rewardedVideoDidOpen')
+			console.log('rewardedVideoDidOpen');
+			this.setState({hasAd: true});
 		});
 		AdMobRewarded.addEventListener('rewardedVideoDidClose', () => {
 			console.log('rewardedVideoDidClose');
 			this.setState({hasAd: false});
+			if (this.state.rewardedAmountTaked) {
+				this.setState({continueAllowed: true});
+			}
 			AdMobRewarded.requestAd(onHasAd);
 		});
 
@@ -288,25 +340,27 @@ export default class extends React.Component {
 	}
 
 	showRewarded() {
-		AdMobRewarded.showAd((error) => {
-			if (error) {
-				console.log(error)
-				this.setState({hasAd: false});
-			}
-		});
+		AdMobRewarded.showAd((error) => error && this.setState({hasAd: false}));
 	}
 
 	startTiming() {
-		const interval = setInterval(() => {
-			this.setState({progress: this.state.progress - 0.015});
+		const numbers = _.map(this.state.numbers, (n) => Object.assign({}, n, {reInit: false}));
+		this.setState({numbers});
+
+		const interval = this.setInterval(() => {
+			this.setState({
+				progress: this.state.progress - 0.015,
+			});
+
 			if (this.state.progress <= 0) {
-				clearInterval(interval);
+				this.clearInterval(interval);
 				this.setState({
 					interval: undefined, 
 					gameOver: true
 				});
 			}
-		}, 200);
+
+		}, INTERVAL_TIME);
 
 		this.setState({interval});
 	}
@@ -334,28 +388,130 @@ export default class extends React.Component {
 					<MenuButton 
 						action={'blue'}
 						isBig={true}
-						title={'Заново'} 
+						title={i18n.restartGame} 
 						leftIcon={'refresh'} 
 						onPress={() => this.restartGame()}/>
 				</View>
 				<View style={[{marginBottom: 10}]}>
 					<MenuButton 
-						action={'red'}
-						title={'Продолжить за 1 $'} 
-						onPress={() => this.restartGame()}/>
-				</View>
-				<View style={[{marginBottom: 10}]}>
-					<MenuButton 
-						isDisable={!this.state.hasAd}
+						isDisable={!this.state.hasAd || this.state.continueCount >= 2}
 						action={'yellow'}
-						title={'Посмотреть рекламу'} 
-						onPress={() => this.showRewarded()}/>
+						title={i18n.showRewarded} 
+						onPress={() => this.showRewarded()}
+						/>
 				</View>
 			</View>
 		);
 	}
 
+	_share() {
+		this._shareText();
+	}
+
+	_shareText() {
+		Share.share({
+			message: i18n.shareMessage.replace('{bestScore}', this.state.bestScore),
+			url: this._getAppLink(),
+			title: i18n.appName
+		}, 
+		{
+			dialogTitle: i18n.shareDialogTitle,
+			excludedActivityTypes: [
+				'com.apple.UIKit.activity.Message',
+				'com.apple.UIKit.activity.PostToFacebook',
+				'com.apple.UIKit.activity.PostToTwitter'
+			],
+			tintColor: 'green'
+		}
+		)
+		.then(this._showResult)
+		.catch((error) => this.setState({shareResult: 'error: ' + error.message}));
+	}
+
+	_showResult(result) {
+		if (result.action === Share.sharedAction) {
+			if (result.activityType) {
+				this.setState({shareResult: 'shared with an activityType: ' + result.activityType});
+			} else {
+				this.setState({shareResult: 'shared'});
+			}
+		} else if (result.action === Share.dismissedAction) {
+			this.setState({shareResult: 'dismissed'});
+		}
+	}
+
+	_getAppLink() {
+		return `http://itunes.apple.com/${i18n.country}/app/imcalc/id1239180596?mt=8`;
+	}
+
+	_vote() {
+		const link = this._getAppLink();
+
+		Linking.canOpenURL(link)
+			.then((supported) => {
+				supported && Linking.openURL(link);
+			}, (err) => console.log(err));
+	}
+
+	_renderModal() {
+		return (
+			<ModalBox
+				isOpen={this.state.gameOver}
+				style={[localStyles.modal]}>
+				<View style={localStyles.h1}>
+					<Text style={localStyles.h1Text}>{i18n.youLose}</Text>
+				</View>
+				<View style={localStyles.result}>
+					<View style={localStyles.resultCol}>
+						<Text style={localStyles.resultDesc}>{i18n.scoreDesc.toUpperCase()}</Text>
+						<Text style={localStyles.resultValue}>{this.state.score}</Text>
+					</View>
+					<View style={localStyles.resultCol}>
+						<Text style={localStyles.resultDesc}>{i18n.levelDesc.toUpperCase()}</Text>
+						<Text style={localStyles.resultValue}>{this.state.lvlIncrement + 1}</Text>
+					</View>
+					
+					<View style={localStyles.resultCol}>
+						<Text style={localStyles.resultDesc}>{i18n.bestScoreDesc.toUpperCase()}</Text>
+						<Text style={localStyles.resultValue}>{this.state.bestScore}</Text>
+					</View>
+				</View>
+				{this._renderGameOverButtons()}
+
+				<View style={{
+					flex: 0,
+					width: 140,
+					flexDirection: 'row', 
+					marginTop: 20,
+					justifyContent: 'space-between'
+				}}>
+					<MenuButton 
+						action={'red'}
+						width={38}
+						leftIcon={'trophy'} 
+						onPress={() => GameManager.rnShowLeaderboard()}/>
+
+					<MenuButton 
+						action={'blue'}
+						width={38}
+						leftIcon={'share'} 
+						onPress={() => this._share()}/>
+
+					<MenuButton 
+						action={'green'}
+						width={38}
+						leftIcon={'star'} 
+						onPress={() => this._vote()}/>
+				</View>
+			</ModalBox>
+		);
+	}
+
 	render() {
+
+		if (this.state.continueAllowed) {
+			this.continueGame();
+		}
 
 		return (
 			<View style={styles.container}>
@@ -375,8 +531,8 @@ export default class extends React.Component {
 							<Text style={localStyles.target}>{this.state.target}</Text>
 						</View>
 						<View style={localStyles.headerCol}>
-							<Text style={localStyles.scoreDesc}>{i18n.bestScoreDesc.toUpperCase()}</Text>
-							<Text style={localStyles.score}>{this.state.bestScore}</Text>
+							<Text style={localStyles.scoreDesc}>{i18n.levelDesc.toUpperCase()}</Text>
+							<Text style={localStyles.score}>{this.state.lvlIncrement + 1}</Text>
 						</View>
 					</View>
 					<View>
@@ -392,25 +548,19 @@ export default class extends React.Component {
 					<View style={{marginTop: 20}}>
 						<MenuButton 
 							isDisable={this.state.plusTime === 0}
-							title={`Время (${this.state.plusTime})`}
+							title={`${i18n.addTime} (${this.state.plusTime})`}
 							leftIcon={'plus'}
 							onPress={() => this.plusTime()}/>
 					</View>
 				</View>
 
-				<ModalBox
-					isOpen={this.state.gameOver}
-					style={[localStyles.modal]}>
-					<View style={localStyles.h1}>
-						<Text style={localStyles.h1Text}>{i18n.youLose}</Text>
-					</View>
-					<View></View>
-					{this._renderGameOverButtons()}
-				</ModalBox>
+				{this._renderModal()}
 			</View>
 		);
 	}
 }
+
+reactMixin(Game.prototype, TimerMixin);
 
 
 const localStyles = StyleSheet.create({
@@ -424,13 +574,13 @@ const localStyles = StyleSheet.create({
 	},
 	progress: {},
 	target: {
-		fontSize: 52,
-		color: '#fff'
+		fontSize: width === 320 ? 48 : 52,
+		color: '#fff',
+		paddingTop: 10
 	},
 	targetDesc: {
 		textAlign: 'center',
-		fontSize: 12,
-		marginBottom: 6,
+		fontSize: width === 320 ? 10 : 12,
 		color: '#fff'
 	},
 	score: {
@@ -444,24 +594,43 @@ const localStyles = StyleSheet.create({
 	header: {
 		flex: 0, 
 		flexDirection: 'row',
-		marginTop: 20
+		marginTop: 20,
+		marginBottom: 20,
 	},
 	headerCol: {
 		flex: 1,
 		alignItems: 'center'
 	},
+	result: {
+		flex: 0, 
+		flexDirection: 'row',
+		marginBottom: 40,
+		width: 240
+	},
+	resultCol: {
+		flex: 1,
+		alignItems: 'center'
+	},
+	resultValue: {
+		fontSize: 20,
+		color: '#fff'
+	},
+	resultDesc: {
+		fontSize: 10,
+		color: '#eee'
+	},
 	modal: {
 		position: 'absolute',
 		justifyContent: 'center',
 		alignItems: 'center',
-		backgroundColor: '#252f33',
+		backgroundColor: '#2c3e50',
 		zIndex: 10
 	},
 	h1: {
 		marginBottom: 40
 	},
 	h1Text: {
-		fontSize: 42,
+		fontSize: 36,
 		color: '#fff'
 	}
 });

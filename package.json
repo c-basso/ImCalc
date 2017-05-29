@@ -21,8 +21,11 @@
   "dependencies": {
     "expo": "^16.0.0",
     "react": "16.0.0-alpha.6",
+    "react-mixin": "^2.0.2",
     "react-native": "^0.43.4",
     "react-native-admob": "^1.3.0",
-    "react-native-fontawesome": "^5.7.0"
+    "react-native-fontawesome": "^5.7.0",
+    "react-native-localization": "^0.1.30",
+    "react-timer-mixin": "^0.13.3"
   }
 }
